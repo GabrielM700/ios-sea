@@ -76,6 +76,20 @@ static int magic_ok(const char *m)
 
 typedef void (*xnu_entry_t)(uint64_t boot_args_pa);
 
+void splash_draw(uintptr_t fb, uint32_t stride, uint32_t fw, uint32_t fh);
+
+static void wait_s(unsigned n)
+{
+	uint64_t f, t0, t;
+	__asm__ volatile("mrs %0, cntfrq_el0" : "=r"(f));
+	if (f < 1000000)
+		f = 13000000;
+	__asm__ volatile("mrs %0, cntvct_el0" : "=r"(t0));
+	do
+		__asm__ volatile("mrs %0, cntvct_el0" : "=r"(t));
+	while (t - t0 < n * f);
+}
+
 /*
  * LK hands us vendor_boot's ramdisk and boot's ramdisk back to back in
  * [initrd-start, initrd-end) with no promise about where ours starts or how it is
@@ -216,17 +230,10 @@ const char *loader_boot(uintptr_t dtb)
 
 	uintptr_t entry_pa = p->entry_va + pa_of_va_base;
 	con_hex("JUMP", entry_pa);
-	con_str("XNU", "jumping in 8 s (fbcon clears screen)");
-	{
-		uint64_t f, t0, t;
-		__asm__ volatile("mrs %0, cntfrq_el0" : "=r"(f));
-		if (f < 1000000)
-			f = 13000000;
-		__asm__ volatile("mrs %0, cntvct_el0" : "=r"(t0));
-		do
-			__asm__ volatile("mrs %0, cntvct_el0" : "=r"(t));
-		while (t - t0 < 8 * f);
-	}
+	con_str("XNU", "splash in 6 s, then jump");
+	wait_s(6);
+	splash_draw(FB_BASE, FB_STRIDE, FB_W, FB_H);
+	wait_s(6);
 
 	/* Everything was written with the MMU and caches off; drop any stale I-cache lines too. */
 	__asm__ volatile("dsb sy; ic iallu; dsb sy; isb" ::: "memory");

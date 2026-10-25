@@ -42,6 +42,11 @@ boot stock (cabeçalho v3); não vai para o repositório.
 Imagem HFS+ de 16 GiB. No fleur ela vai para `userdata` (apaga os dados do Android); no sea `cust` (2 GiB)
 e `super` (7 GiB) não comportam. Nada grava em `userdata` sem decisão explícita.
 
+## Splash
+Antes de saltar para o XNU o shim mostra 6 s de log em texto e depois 6 s de um cartão (imagem + texto, gerado por
+`shim-sea/splash/make-splash.py` a partir de `patrick.png`; `splash.bin.gz` já vem pronto). Se o cartão aparece, o
+carregador terminou de copiar kernel/ADT/boot_args; se depois ele é substituído pelas linhas brancas do kprintf, o XNU está rodando.
+
 ## Testes no host
 `shim-sea/test/` valida a varredura/realinhamento do ramdisk (`lt.c`) e `loader_boot` inteiro contra um payload
 (`lb.c`, mapeia RAM em 0x140000000 com mmap). Ver cabeçalho dos arquivos.

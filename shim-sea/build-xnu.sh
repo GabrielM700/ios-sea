@@ -10,7 +10,8 @@ CF="--target=$T -O2 -ffreestanding -nostdlib -fno-pic -fno-pie -mgeneral-regs-on
 STOCK=${STOCK:-../stock/boot.img}
 TOOLS=${TOOLS:-../tools}
 mkdir -p out/xnu
-SRC="start.S shim.c console.c mmu.c fdt.c ufs.c loader.c"
+[ -f splash/splash.bin ] || gunzip -k splash/splash.bin.gz
+SRC="start.S shim.c console.c mmu.c fdt.c ufs.c loader.c splash.c splashdata.S"
 OBJS=""
 for f in $SRC; do clang $CF -c $f -o out/xnu/${f%.*}.o; OBJS="$OBJS out/xnu/${f%.*}.o"; done
 abs=$(llvm-readelf -r $(ls out/xnu/*.o | grep -v start.o) | grep -c ABS64 || true)

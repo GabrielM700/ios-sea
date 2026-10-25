@@ -14,3 +14,4 @@ shim-sea/out/
 shim-sea/fakexnu/out/
 *.img
 *.adt
+shim-sea/splash/splash.bin

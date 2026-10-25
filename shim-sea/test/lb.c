@@ -9,6 +9,7 @@ void con_str(const char*a,const char*b){printf("  %-9s %s\n",a,b);}
 static uint64_t g_lo,g_hi;
 int fdt_chosen_u64(uintptr_t dtb,const char*n,uint64_t*o){ *o = strstr(n,"start")? g_lo:g_hi; return 1;}
 static uint64_t j_entry,j_ba;
+void splash_draw(uintptr_t fb,uint32_t s,uint32_t w,uint32_t h){}
 static void host_jump(uint64_t e,uint64_t b){ j_entry=e; j_ba=b; }
 #define FB_BASE_CHECK 0x7c606000UL
 #include "loader_host.c"
