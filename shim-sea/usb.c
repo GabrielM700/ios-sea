@@ -1,5 +1,5 @@
 /*
- * sea USB probe 1.  Everything is printed BEFORE the access that could hang the bus
+ * sea USB probe 2 (probe 1: PHY init alone gave no RESET; DEVCTL stayed 0x80 = no VBUS/session).  Everything is printed BEFORE the access that could hang the bus
  * (clock-gated MUSB), so the last line on the photo says where it stopped.
  * Phase A: read-only dump.  B: soft-connect without touching the PHY.
  * C: Linux tphy init+power_on sequence, then soft-connect.  B and C log RESET and SETUP packets.
@@ -67,6 +67,24 @@ static void phy_init_power_on(void)
 	set32(PHY + 0x6c, (1u << 9) | (1u << 1));			/* FORCE_IDDIG | IDDIG */
 }
 
+
+/* VBUS is not wired to the PHY on sea (charger IC owns it): force the UTMI valid signals, like the vendor kernel. */
+static void phy_force_vbus(void)
+{
+	uint32_t t = r32(PHY + 0x6c);
+	t |= (1u << 13) | (1u << 12) | (1u << 11) | (1u << 10) | (1u << 9);	/* FORCE_VBUSVALID/SESSEND/BVALID/AVALID/IDDIG */
+	t |= (1u << 5) | (1u << 3) | (1u << 2) | (1u << 1);			/* VBUSVALID, BVALID, AVALID, IDDIG(device) */
+	t &= ~(1u << 4);							/* SESSEND = 0 */
+	w32(PHY + 0x6c, t);
+}
+
+static void phy_pll_force(void)
+{
+	set32(PHY + 0x00, 1u << 15);	/* ACR0 U2PLL_FORCE_ON */
+	set32(PHY + 0x08, 1u << 18);	/* ACR2 SIF_U2PLL_FORCE_EN */
+	set32(PHY + 0x60, 1u << 24);	/* DCR0 SIF_U2PLL_FORCE_ON */
+}
+
 static void hold(unsigned ms)
 {
 	uint64_t end = cnt() + frq() * ms / 1000;
@@ -83,15 +101,27 @@ static void musb_connect(void)
 	w16(MUSB + 0x06, 0xffff);		/* INTRTXE */
 	w16(MUSB + 0x08, 0xfffe);		/* INTRRXE */
 	w8(MUSB + 0x0b, 0xff);			/* INTRUSBE */
-	w8(MUSB + 0x01, 0x60);			/* SOFTCONN | HSENAB */
+	w8(MUSB + 0x0f, 0);			/* TESTMODE */
+	w8(MUSB + 0x01, 0xa0);			/* ISOUPDATE | HSENAB */
+	w8(MUSB + 0x60, 0x01);			/* DEVCTL.SESSION (musb_start does this without VBUS) */
+	hold(100);
+	w8(MUSB + 0x01, 0xe0);			/* + SOFTCONN */
 }
 
 static void watch(unsigned secs)
 {
 	uint64_t end = cnt() + frq() * secs;
 	uint32_t seen = 0, resets = 0, setups = 0;
-	int hs = 0, i;
+	int hs = 0, i, chg = 0;
+	uint32_t ld = 0xffff, lp = 0xffff, ll = 0xffff;
 	while (cnt() < end) {
+		uint32_t d = r8(MUSB + 0x60), p = r8(MUSB + 0x01), l = r32(MUSB + 0xa0);
+		if ((d != ld || p != lp || l != ll) && chg < 10) {
+			con_hex2("CHG", "dev=", d, "pwr=", p);
+			con_hex("L1S", l);
+			chg++;
+		}
+		ld = d; lp = p; ll = l;
 		uint8_t u = r8(MUSB + 0x0a);		/* INTRUSB (clear on read) */
 		if (u) {
 			seen |= u;
@@ -127,37 +157,37 @@ static void watch(unsigned secs)
 void usb_probe(void)
 {
 	con_skip();
-	con_str("A", "read-only dump; last line = where it hung");
-	con_str("INFRA", "reading clock-gate status");
+	con_str("A", "read-only dump (cable already plugged)");
 	con_hex2("CG", "90=", r32(INFRA + 0x90), "94=", r32(INFRA + 0x94));
-	con_hex2("CG", "ac=", r32(INFRA + 0xac), "c8=", r32(INFRA + 0xc8));
-	con_str("PHY", "reading 0x11ca0300");
 	dump_phy("before");
-	con_str("MUSB", "reading 0x11200000");
 	dump_musb("before");
 	con_skip();
-	con_str("NEXT", "B in 25 s - plug the PC USB cable now");
-	hold(25000);
+	con_str("NEXT", "B in 15 s");
+	hold(15000);
 
 	con_clear(BLUE);
-	con_str("SHIM", "sea usb probe1  B: soft-connect, PHY untouched");
-	musb_connect();
-	hold(300);
-	dump_musb("after connect");
-	watch(20);
-	con_skip();
-	con_str("NEXT", "C in 20 s");
-	hold(20000);
-
-	con_clear(BLUE);
-	con_str("SHIM", "sea usb probe1  C: tphy init + power_on");
-	w8(MUSB + 0x01, 0);			/* drop SOFTCONN */
-	hold(200);
+	con_str("SHIM", "sea usb probe2  B: phy init + forced VBUS + session");
 	phy_init_power_on();
-	dump_phy("after init");
+	phy_force_vbus();
 	hold(100);
+	dump_phy("after init+force");
 	musb_connect();
 	hold(300);
 	dump_musb("after connect");
+	watch(25);
+	con_skip();
+	con_str("NEXT", "C in 15 s");
+	hold(15000);
+
+	con_clear(BLUE);
+	con_str("SHIM", "sea usb probe2  C: B + PLL forced on");
+	w8(MUSB + 0x01, 0xa0);			/* drop SOFTCONN */
+	hold(300);
+	phy_pll_force();
+	hold(100);
+	dump_phy("after pll force");
+	w8(MUSB + 0x01, 0xe0);
+	hold(300);
+	dump_musb("after reconnect");
 	watch(30);
 }

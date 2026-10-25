@@ -649,7 +649,7 @@ void shim_main(uint64_t dtb, uint64_t boot_el)
 #ifdef USB_PROBE
 	stage = "usb";
 	con_clear(BLUE);
-	con_str("SHIM", "sea usb probe1  A: dump");
+	con_str("SHIM", "sea usb probe2  A: dump");
 	con_hex2("BOOT", "el=", (uint32_t)boot_el, "dtb=", dtb);
 	usb_probe();
 	con_skip();
