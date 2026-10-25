@@ -656,6 +656,8 @@ void shim_main(uint64_t dtb, uint64_t boot_el)
 		loader_sctlr0 = sc;
 		__asm__ volatile("ic iallu; dsb sy; isb; msr sctlr_el1, %0; isb" :: "r"(sc | (1UL << 12)) : "memory");
 	}
+	con_str("UFS", "waking the device for xnu");
+	ufs_wake(2);
 	con_str("SCAN", "looking for SWEETXNU in the ramdisk");
 	if (loader_payload_present(dtb)) {
 		const char *err = loader_boot(dtb);

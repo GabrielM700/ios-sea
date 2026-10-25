@@ -603,3 +603,41 @@ void test_ufs(void)
 	pause_s(25);
 	gpt_scan(gpt_lun);
 }
+
+/*
+ * Wake the UFS device for xnu: LK leaves it in UFS-PowerDown (probe13), and the
+ * kernel's sweet_ufs driver never sends START STOP UNIT.  Same steps as test_ufs
+ * (take over the request list, SSU on the device W-LUN), then a TUR on the
+ * LUN the kernel will use.  No storage writes.  Returns 0 when LUN `lun` answers GOOD.
+ */
+int ufs_wake(unsigned lun)
+{
+	ufs_clocks();
+	uint32_t ver = ufs_rd(REG_VER), hce = ufs_rd(REG_HCE), hcs = ufs_rd(REG_HCS);
+	con_hex2("UFS", "ver=", ver, "hcs=", hcs);
+	if (ver == 0 || ver == 0xffffffffu || !(hce & 1) || !(hcs & HCS_DP) || !(hcs & HCS_UTRLRDY) ||
+	    ufs_rd(REG_UTRLDBR)) {
+		con_str("UFS", "host not ready: skip wake");
+		return -1;
+	}
+	ufs_wr(REG_UTRLRSR, 0);
+	uintptr_t list = (uintptr_t)utrl;
+	ufs_wr(REG_UTRLBA, (uint32_t)list);
+	ufs_wr(REG_UTRLBAU, (uint32_t)(list >> 32));
+	ufs_wr(REG_UTRLRSR, 1);
+	if (ufs_rd(REG_UTRLBA) != (uint32_t)list || ufs_rd(REG_UTRLBAU) != (uint32_t)(list >> 32) ||
+	    !(ufs_rd(REG_UTRLRSR) & 1)) {
+		con_str("UFS", "list base not taken: skip wake");
+		return -1;
+	}
+	static const uint8_t ssu[6] = { 0x1b, 0, 0, 0, 0x10, 0 };
+	static const uint8_t tur[6] = { 0x00 };
+	uint32_t ocs = 0, st = 0, rc = 1;
+	for (int i = 0; i < 3 && rc; i++)
+		rc = scsi(0xd0, ssu, sizeof(ssu), 0, 0, &ocs, &st);
+	con_hex2("SSU", "rc=", rc, "ocs/st=", ocs << 8 | st);
+	pause_ms(100);
+	rc = scsi(lun, tur, sizeof(tur), 0, 0, &ocs, &st);
+	con_hex2("TUR", "rc=", rc, "ocs/st=", ocs << 8 | st);
+	return rc ? -1 : 0;
+}

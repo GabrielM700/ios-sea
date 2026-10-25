@@ -1,2 +1,2 @@
-#pragma once
-void test_ufs(void);
+
+int ufs_wake(unsigned lun);
