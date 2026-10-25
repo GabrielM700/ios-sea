@@ -9,3 +9,6 @@ int loader_payload_present(uintptr_t dtb);
 
 /* Original SCTLR_EL1 (~0 if untouched); restored right before jumping into xnu. */
 extern uint64_t loader_sctlr0;
+
+/* Boot a SWEETXNU payload that is already in RAM (8-byte aligned); returns only on error. */
+const char *loader_boot_ptr(uintptr_t addr, uint64_t len);

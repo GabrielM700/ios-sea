@@ -646,6 +646,29 @@ void shim_main(uint64_t dtb, uint64_t boot_el)
 	 * probe16 (sea): what XNU needs from the SoC.  One screen per topic, each held
 	 * for a while so it can be photographed; the riskiest step (GIC writes) is last.
 	 */
+#ifdef USB_FASTBOOT
+	stage = "usbfb";
+	{
+		uint64_t sc = rsr("sctlr_el1");
+		loader_sctlr0 = sc;
+		__asm__ volatile("ic iallu; dsb sy; isb; msr sctlr_el1, %0; isb" :: "r"(sc | (1UL << 12)) : "memory");
+	}
+	for (;;) {
+		uint64_t a = 0, l = 0;
+		if (usb_fastboot(&a, &l))
+			reboot_bootloader();
+		con_clear(BLUE);
+		con_str("USB", "payload received");
+		con_hex("ADDR", a);
+		con_hex("LEN", l);
+		con_str("UFS", "waking the device for xnu");
+		ufs_wake(2);
+		const char *err = loader_boot_ptr(a, l);
+		con_str("ERR", err);
+		con_str("NEXT", "usb loader again in 8 s");
+		delay_ms(8000);
+	}
+#endif
 #ifdef USB_PROBE
 	stage = "usb";
 	con_clear(BLUE);

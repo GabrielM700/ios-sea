@@ -165,6 +165,8 @@ loader_payload_present(uintptr_t dtb)
 	return magic_ok(p->magic) && p->version == 1;
 }
 
+static const char *boot_from(uint64_t rd_start, uint64_t rd_end);
+
 const char *loader_boot(uintptr_t dtb)
 {
 	uint64_t rd_end;
@@ -173,6 +175,19 @@ const char *loader_boot(uintptr_t dtb)
 		return "no SWEETXNU payload";
 	uint64_t rd_start = realign(a, rd_end);
 	con_hex("ALIGNED", rd_start);
+	return boot_from(rd_start, rd_end);
+}
+
+/* Payload already in RAM at an 8-byte aligned address (USB download). */
+const char *loader_boot_ptr(uintptr_t addr, uint64_t len)
+{
+	if (addr & 7)
+		return "payload not 8-byte aligned";
+	return boot_from(addr, addr + len);
+}
+
+static const char *boot_from(uint64_t rd_start, uint64_t rd_end)
+{
 
 	const struct payload *p = (const struct payload *)rd_start;
 	if (!magic_ok(p->magic))
