@@ -1,0 +1,16 @@
+# device dumps: persist/modemst/fsg hold IMEI + calibration; live DT holds the serial
+backup/
+dtb/
+recovery/
+# third-party/Apple sources fetched for reading
+research/
+shim/out/
+xnu/out/
+xnu/out-*/
+__pycache__/
+# sea: the phone's own boot/vendor_boot images and build output
+stock/
+shim-sea/out/
+shim-sea/fakexnu/out/
+*.img
+*.adt
