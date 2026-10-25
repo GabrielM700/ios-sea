@@ -7,6 +7,7 @@
  */
 #include <stdint.h>
 #include "console.h"
+#include "usb.h"
 #include "mmu.h"
 #include "fdt.h"
 #include "loader.h"
@@ -645,6 +646,19 @@ void shim_main(uint64_t dtb, uint64_t boot_el)
 	 * probe16 (sea): what XNU needs from the SoC.  One screen per topic, each held
 	 * for a while so it can be photographed; the riskiest step (GIC writes) is last.
 	 */
+#ifdef USB_PROBE
+	stage = "usb";
+	con_clear(BLUE);
+	con_str("SHIM", "sea usb probe1  A: dump");
+	con_hex2("BOOT", "el=", (uint32_t)boot_el, "dtb=", dtb);
+	usb_probe();
+	con_skip();
+	con_str("DONE", "fastboot reboot in 40 s");
+	delay_ms(40000);
+	reboot_bootloader();
+	for (;;)
+		__asm__ volatile("wfi");
+#endif
 #ifdef XNU_LOADER
 	stage = "xnu";
 	con_clear(BLUE);
