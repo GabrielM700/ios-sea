@@ -211,6 +211,8 @@ void usb_probe(void)
 #define STAGE_MAX	0x40000000UL
 
 static uint8_t g_cfg;
+static uint32_t g_tx_pre, g_tx_post;
+static int g_tx_diag;
 static int g_bus_reset;
 
 static const uint8_t dev_desc[18] = {
@@ -243,6 +245,20 @@ static void ep1_enable(void)
 	w16(EP1_RXMAXP, 512);
 	w16(EP1_RXCSR, 0x80 | 0x10);		/* CLRDATATOG | FLUSHFIFO */
 	w16(EP1_RXCSR, 0x80 | 0x10);
+}
+
+static int g_en_diag;
+
+static void ep1_dump(void)
+{
+	if (g_en_diag++ >= 2)
+		return;
+	con_hex2("EP1 TX", "maxp=", r16(EP1_TXMAXP), "csr=", r16(EP1_TXCSR));
+	con_hex2("EP1 RX", "maxp=", r16(EP1_RXMAXP), "csr=", r16(EP1_RXCSR));
+	w8(MUSB + 0x0e, 1);
+	con_hex2("EP1 FIFO", "tsz/add=", r8(MUSB + 0x62) << 16 | r16(MUSB + 0x64),
+		 "rsz/add=", r8(MUSB + 0x63) << 16 | r16(MUSB + 0x66));
+	w8(MUSB + 0x0e, 0);
 }
 
 static void ep1_cleartog(void)
@@ -384,8 +400,10 @@ static void handle_setup(void)
 		return;
 	case 9:	/* SET_CONFIGURATION */
 		g_cfg = wval & 0xff;
-		if (g_cfg)
+		if (g_cfg) {
 			ep1_enable();
+			ep1_dump();
+		}
 		ep0_ack();
 		return;
 	case 10:	/* GET_INTERFACE */
@@ -432,20 +450,35 @@ static unsigned rx_read(uint8_t *dst)
 	return n;
 }
 
+static int tx_send_raw(const char *s);
 static int tx_send(const char *s)
+{
+	int r = tx_send_raw(s);
+	if (g_tx_diag < 6) {
+		g_tx_diag++;
+		con_hex2(r ? "TX FAIL" : "TX ok", "pre=", g_tx_pre, "post=", g_tx_post);
+	}
+	return r;
+}
+
+static int tx_send_raw(const char *s)
 {
 	unsigned n = 0;
 	while (s[n] && n < 64) {
 		w8(EP1_FIFO, (uint8_t)s[n]);
 		n++;
 	}
-	w16(EP1_TXCSR, r16(EP1_TXCSR) | 0x02);	/* TXPKTRDY */
+	g_tx_pre = r16(EP1_TXCSR);
+	w16(EP1_TXCSR, 0x2000 | 0x02);		/* MODE_TX | TXPKTRDY (no read-modify-write) */
 	uint64_t end = deadline(2000);
 	while (r16(EP1_TXCSR) & 0x02) {
-		if (cnt() > end)
+		if (cnt() > end) {
+			g_tx_post = r16(EP1_TXCSR);
 			return -1;
+		}
 		poll_bus();
 	}
+	g_tx_post = r16(EP1_TXCSR);
 	return 0;
 }
 
@@ -523,8 +556,15 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 	g_cfg = 0;
 	say("USB", "connected, waiting for the host");
 
+	uint64_t last = cnt();
 	for (;;) {
 		service();
+		if (cnt() - last > frq() * 120) {
+			say("USB", "idle 120 s: back to fastboot");
+			hold(2000);
+			w8(MUSB + 0x01, 0);
+			return 1;
+		}
 		if (g_bus_reset) {
 			g_bus_reset = 0;
 			if (state == 1) {
@@ -535,6 +575,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 		if (!g_cfg || !(r16(EP1_RXCSR) & 1))
 			continue;
 
+		last = cnt();
 		if (state == 1) {
 			unsigned n = r16(EP1_RXCOUNT);
 			if (n > dl_total - dl_got)
