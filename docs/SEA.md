@@ -53,3 +53,13 @@ carregador terminou de copiar kernel/ADT/boot_args; se depois ele é substituíd
 
 ## Créditos
 Base: dipa-studio/ios-sweet e Electron-py/ios-sweet (branch fleur), MIT.
+
+## USB loader (fastboot-compatible) e root mínimo em RAM
+
+- `shim-sea/build-usbfb.sh` gera a imagem do loader USB (MUSB do MT6781; o VBUS tem de ser
+  forçado no PHY, o sea não o liga ao PHY). Grave uma vez na `boot_b`; depois:
+  `fastboot stage payload.bin && fastboot oem go` (o payload vai para 0xC0100000, até ~2 GiB).
+- `tools/mkpayload.py KERNEL sea.adt out.bin --ramdisk root.img --cmdline '... rd=md0'` embute o root.
+- `tools/mkminroot.sh OS.dmg SYSTEMOS.dmg root.img` monta, no seu PC, um HFS+ mínimo do iOS 16.7.16
+  (launchd, dyld, shared cache, jobs de demonstração ps/df/mount). Boot-args sugeridos:
+  `debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=md0 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt=-1 wdt_test=no_user_checkin`.

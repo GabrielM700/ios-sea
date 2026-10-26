@@ -207,8 +207,8 @@ void usb_probe(void)
 #define EP1_FIFO	(MUSB + 0x24)
 #define EP0_FIFO	(MUSB + 0x20)
 
-#define STAGE_ADDR	0xA0000000UL
-#define STAGE_MAX	0x40000000UL
+#define STAGE_ADDR	0xC0100000UL
+#define STAGE_MAX	0x7FE00000UL
 
 static uint8_t g_cfg;
 static uint32_t g_tx_pre, g_tx_post;
@@ -511,7 +511,7 @@ static void cat(char *d, const char *s)
 
 static const char *getvar(const char *n)
 {
-	if (starts(n, "max-download-size")) return "0x40000000";
+	if (starts(n, "max-download-size")) return "0x7fe00000";
 	if (starts(n, "product")) return "sea";
 	if (starts(n, "version-bootloader")) return "ios-sea-usb";
 	if (starts(n, "version")) return "0.4";
@@ -604,7 +604,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 			const char *name = (char *)cmd + 7;
 			if (starts(name, "all")) {
 				tx_send("INFOproduct: sea");
-				tx_send("INFOmax-download-size: 0x40000000");
+				tx_send("INFOmax-download-size: 0x7fe00000");
 				tx_send("INFOversion-bootloader: ios-sea-usb");
 				tx_send("OKAY");
 			} else {
