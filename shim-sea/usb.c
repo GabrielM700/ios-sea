@@ -469,9 +469,9 @@ static int tx_send_raw(const char *s)
 		n++;
 	}
 	g_tx_pre = r16(EP1_TXCSR);
-	w16(EP1_TXCSR, 0x2000 | 0x02);		/* MODE_TX | TXPKTRDY (no read-modify-write) */
+	w16(EP1_TXCSR, 0x2000 | 0x01);		/* MODE_TX | TXPKTRDY (bit 0; bit 1 is FIFONOTEMPTY) */
 	uint64_t end = deadline(2000);
-	while (r16(EP1_TXCSR) & 0x02) {
+	while (r16(EP1_TXCSR) & 0x01) {
 		if (cnt() > end) {
 			g_tx_post = r16(EP1_TXCSR);
 			return -1;
