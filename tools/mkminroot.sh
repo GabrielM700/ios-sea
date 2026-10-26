@@ -29,20 +29,24 @@ for t in mkfs.hfsplus fsck.hfsplus rsync python3; do command -v $t >/dev/null ||
 [[ ${#miss[@]} == 0 ]] || { echo "missing tools: ${miss[*]}" >&2; exit 1; }
 
 work=$(mktemp -d)
-mounts=()
 cleanup() {
-	for m in "${mounts[@]}"; do mountpoint -q "$m" && sudo umount "$m" 2>/dev/null || true; done
-	if ! mountpoint -q "$work/os" 2>/dev/null && ! mountpoint -q "$work/sysos" 2>/dev/null && ! mountpoint -q "$work/root" 2>/dev/null; then
-		sudo rm -rf "$work"
+	set +e
+	# The FUSE mounts belong to root: only root can see them, so ALWAYS try to unmount
+	# (a user-side `mountpoint` says "no" and a following rm -rf would walk into the image).
+	for m in root sysos os; do
+		sudo umount "$work/$m" 2>/dev/null || sudo fusermount -u "$work/$m" 2>/dev/null || sudo fusermount3 -u "$work/$m" 2>/dev/null
+	done
+	if grep -q " $work/" /proc/mounts; then
+		echo "still mounted under $work: left in place (sudo umount them, then rm -rf $work)" >&2
 	else
-		echo "still mounted under $work: left in place" >&2
+		sudo rm -rf --one-file-system "$work"
 	fi
 }
 trap cleanup EXIT
 
 apfs_mount() {	# apfs-fuse splits options on ',' (iPhone10,3 paths) and wants *.dmg: use links
 	ln -s "$1" "$work/$2.dmg"; mkdir "$work/$2"
-	sudo "$apfs_fuse" "$work/$2.dmg" "$work/$2"; mounts+=("$work/$2")
+	sudo "$apfs_fuse" "$work/$2.dmg" "$work/$2"
 }
 apfs_mount "$os" os
 apfs_mount "$sysos" sysos
@@ -50,17 +54,25 @@ O=$work/os/root S=$work/sysos/root
 stage=$work/stage
 sudo mkdir -p "$stage"
 
+# apfs-fuse runs as root and the mounts are not readable by you: every test below uses sudo.
+sudo test -e "$O/sbin/launchd" || {
+	echo "OS.dmg has no /sbin/launchd: it is not the root filesystem. Top level:" >&2
+	sudo ls "$O" | head -20 >&2; exit 1; }
+sudo test -d "$S/System/Library/Caches/com.apple.dyld" || {
+	echo "SystemOS.dmg has no System/Library/Caches/com.apple.dyld: not the SystemOS cryptex. Top level:" >&2
+	sudo ls "$S" | head -20 >&2; exit 1; }
+
 echo "== staging the OS files"
 for d in sbin bin usr/bin usr/sbin usr/lib; do
 	sudo mkdir -p "$stage/$(dirname "$d")"
-	[[ -e $O/$d ]] || { echo "  (no $d in this OS image)"; continue; }
-	set +e; sudo rsync -aH --numeric-ids "$O/$d" "$stage/$(dirname "$d")/" 2>"$work/rsync-failed.log"; rc=$?; set -e
+	if ! sudo test -e "$O/$d"; then echo "  (no $d in this OS image)"; continue; fi
+	set +e; sudo rsync -aH --numeric-ids "$O/$d" "$stage/$(dirname "$d")/" 2>>"$work/rsync-failed.log"; rc=$?; set -e
 	[[ $rc == 0 || $rc == 23 ]] || exit $rc
 done
 sudo mkdir -p "$stage/usr/libexec"
-for f in "$O"/usr/libexec/dyld*; do [[ -e $f ]] && sudo rsync -aH "$f" "$stage/usr/libexec/" || true; done
+sudo find "$O/usr/libexec" -maxdepth 1 -name 'dyld*' -exec rsync -aH {} "$stage/usr/libexec/" \; || true
 # top-level symlinks and the /private skeleton
-for l in etc var tmp; do [[ -L $O/$l ]] && sudo rsync -aH "$O/$l" "$stage/" || true; done
+for l in etc var tmp; do if sudo test -L "$O/$l"; then sudo rsync -aH "$O/$l" "$stage/"; fi; done
 sudo mkdir -p "$stage/private" "$stage/dev" "$stage/System/Library/xpc" "$stage/System/Library/LaunchDaemons"
 sudo rsync -aH --numeric-ids "$O/private/etc" "$stage/private/" || true
 sudo install -d -m 0755 "$stage/private/var/root" "$stage/private/var/run" "$stage/private/var/log" \
@@ -70,12 +82,12 @@ sudo install -d -m 1777 "$stage/private/tmp"
 echo "== shared cache from the SystemOS cryptex"
 dsc=System/Library/Caches/com.apple.dyld
 sudo mkdir -p "$stage/$dsc"
-[[ -d $S/$dsc ]] || { echo "no $dsc in SystemOS.dmg" >&2; exit 1; }
-for f in "$S/$dsc"/dyld_shared_cache_*; do
-	case $f in *.map|*.atlas|*.symbols|*.dylddata) continue;; esac
-	sudo rsync -aH --numeric-ids "$f" "$stage/$dsc/"
-done
-ls -l "$stage/$dsc" | sed 's/^/  /'
+# iOS 16 split cache: dyld_shared_cache_arm64, .01 ... .NN, and the .dyldlinkedit / .dylddata parts
+# are all needed; only the map/atlas/symbols files are debugging aids.
+sudo find "$S/$dsc" -maxdepth 1 -type f -name 'dyld_shared_cache_*' ! -name '*.map' ! -name '*.atlas' ! -name '*.symbols' \
+	-exec rsync -aH --numeric-ids {} "$stage/$dsc/" \;
+sudo sh -c "ls -l '$stage/$dsc' | tail -n +2 | wc -l" | sed 's/^/  files: /'
+sudo du -sh "$stage/$dsc" | sed 's/^/  cache size: /'
 
 echo "== launchd job cache"
 sudo python3 "$here/minroot-launchd.py" "$O/System/Library/xpc/launchd.plist" "$stage/System/Library/xpc/launchd.plist" ${keep:+--keep "${keep[@]}"}
