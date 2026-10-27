@@ -58,7 +58,7 @@ sudo mkdir -p "$stage"
 sudo test -e "$O/sbin/launchd" || {
 	echo "OS.dmg has no /sbin/launchd: it is not the root filesystem. Top level:" >&2
 	sudo ls "$O" | head -20 >&2; exit 1; }
-sudo test -d "$S/System/Library/Caches/com.apple.dyld" || {
+[[ ${NOCACHE:-0} == 1 ]] || sudo test -d "$S/System/Library/Caches/com.apple.dyld" || {
 	echo "SystemOS.dmg has no System/Library/Caches/com.apple.dyld: not the SystemOS cryptex. Top level:" >&2
 	sudo ls "$S" | head -20 >&2; exit 1; }
 
@@ -79,15 +79,20 @@ sudo install -d -m 0755 "$stage/private/var/root" "$stage/private/var/run" "$sta
 	"$stage/private/var/tmp" "$stage/private/var/db" "$stage/private/var/mobile"
 sudo install -d -m 1777 "$stage/private/tmp"
 
-echo "== shared cache from the SystemOS cryptex"
-dsc=System/Library/Caches/com.apple.dyld
-sudo mkdir -p "$stage/$dsc"
-# iOS 16 split cache: dyld_shared_cache_arm64, .01 ... .NN, and the .dyldlinkedit / .dylddata parts
-# are all needed; only the map/atlas/symbols files are debugging aids.
-sudo find "$S/$dsc" -maxdepth 1 -type f -name 'dyld_shared_cache_*' ! -name '*.map' ! -name '*.atlas' ! -name '*.symbols' \
-	-exec rsync -aH --numeric-ids {} "$stage/$dsc/" \;
-sudo sh -c "ls -l '$stage/$dsc' | tail -n +2 | wc -l" | sed 's/^/  files: /'
-sudo du -sh "$stage/$dsc" | sed 's/^/  cache size: /'
+if [[ ${NOCACHE:-0} == 1 ]]; then
+	echo "== NOCACHE=1: no shared cache (launchd will not get past dyld; this only tests the HFS+ mount and exec)"
+else
+	echo "== shared cache from the SystemOS cryptex"
+	dsc=System/Library/Caches/com.apple.dyld
+	sudo mkdir -p "$stage/$dsc"
+	# iOS 16 split cache: dyld_shared_cache_arm64, .01 ... .NN, and the .dyldlinkedit / .dylddata parts
+	# are all needed; only the map/atlas/symbols files are debugging aids.
+	sudo find "$S/$dsc" -maxdepth 1 -type f -name 'dyld_shared_cache_*' ! -name '*.map' ! -name '*.atlas' ! -name '*.symbols' \
+		-exec rsync -aH --numeric-ids {} "$stage/$dsc/" \;
+	sudo sh -c "ls -l '$stage/$dsc' | tail -n +2 | wc -l" | sed 's/^/  files: /'
+	sudo du -sh "$stage/$dsc" | sed 's/^/  cache size: /'
+
+fi
 
 echo "== launchd job cache"
 sudo python3 "$here/minroot-launchd.py" "$O/System/Library/xpc/launchd.plist" "$stage/System/Library/xpc/launchd.plist" ${keep:+--keep "${keep[@]}"}
