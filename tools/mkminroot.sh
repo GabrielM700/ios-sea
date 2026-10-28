@@ -70,7 +70,9 @@ for d in sbin bin usr/bin usr/sbin usr/lib; do
 	[[ $rc == 0 || $rc == 23 ]] || exit $rc
 done
 sudo mkdir -p "$stage/usr/libexec"
-sudo find "$O/usr/libexec" -maxdepth 1 -name 'dyld*' -exec rsync -aH {} "$stage/usr/libexec/" \; || true
+# xpcproxy: launchd spawns EVERY job through /usr/libexec/xpcproxy; without it each job fails with ENOENT.
+sudo find "$O/usr/libexec" -maxdepth 1 \( -name 'dyld*' -o -name xpcproxy \) -exec rsync -aH {} "$stage/usr/libexec/" \; || true
+sudo test -e "$stage/usr/libexec/xpcproxy" || { echo "error: no /usr/libexec/xpcproxy in the OS image" >&2; exit 1; }
 # top-level symlinks and the /private skeleton
 for l in etc var tmp; do if sudo test -L "$O/$l"; then sudo rsync -aH "$O/$l" "$stage/"; fi; done
 sudo mkdir -p "$stage/private" "$stage/dev" "$stage/System/Library/xpc" "$stage/System/Library/LaunchDaemons"
