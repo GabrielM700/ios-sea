@@ -22,7 +22,7 @@ sudo "$apfs_fuse" "$work/os.dmg" "$work/os"
 sudo mount -t hfsplus -o loop,force "$img" "$work/root"
 for f in "$@"; do
 	sudo test -e "$work/os/root/$f" || { echo "not in the OS image: $f" >&2; exit 1; }
-	(cd "$work/os/root" && sudo rsync -aHR --numeric-ids "./$f" "$work/root/")
+	sudo rsync -aHR --numeric-ids "$work/os/root/./$f" "$work/root/"
 	echo "added $f"
 done
 sudo ls -ln "$work/root/usr/libexec" | head
