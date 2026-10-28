@@ -28,6 +28,9 @@ def main():
     args = sys.argv[1:]
     keep = set()
     outdir = None
+    as_root = '--as-root' in args	# run the kept stock jobs as root (drop UserName/GroupName)
+    if as_root:
+        args.remove('--as-root')
     if '--dir' in args:	# also write the kept jobs as plain plists there (launchd read them even when it rejected the cache)
         i = args.index('--dir')
         outdir = args[i + 1]
@@ -47,6 +50,9 @@ def main():
                 job['_PanicOnCrasX'] = job.pop('_PanicOnCrash')
             job['StandardOutPath'] = '/dev/console'
             job['StandardErrorPath'] = '/dev/console'
+            if as_root:
+                for k in ('UserName', 'GroupName', 'Groups'):
+                    job.pop(k, None)
             jobs[key] = job
     missing = keep - {j.get('Label') for j in jobs.values()}
     if missing:

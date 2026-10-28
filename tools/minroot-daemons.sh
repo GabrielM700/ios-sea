@@ -4,6 +4,7 @@
 # _PanicOnCrash is renamed so a crash does not panic the kernel).
 #   tools/minroot-daemons.sh OS.dmg root.img --list [PATTERN]          what the stock cache has
 #   tools/minroot-daemons.sh OS.dmg root.img LABEL [LABEL ...]          e.g. com.apple.logd com.apple.notifyd
+# AS_ROOT=1 runs the kept jobs as root (diagnoses uid/permission problems).
 # Needs apfs-fuse, sudo, python3.
 set -euo pipefail
 [[ $# -ge 3 ]] || { sed -n '2,8p' "$0"; exit 2; }
@@ -49,7 +50,7 @@ sudo install -d -o 272 -g 272 -m 0755 "$R/private/var/db/uuidtext" "$R/private/v
 for d in diagnostics uuidtext diagnostics/timesync; do
 	sudo install -o 272 -g 272 -m 0644 /dev/null "$R/private/var/db/$d/.migrated"
 done
-sudo python3 "$here/minroot-launchd.py" "$work/stock.plist" "$work/new.plist" --dir "$R/System/Library/LaunchDaemons" --keep "${labels[@]}"
+sudo python3 "$here/minroot-launchd.py" "$work/stock.plist" "$work/new.plist" --dir "$R/System/Library/LaunchDaemons" ${AS_ROOT:+--as-root} --keep "${labels[@]}"
 sudo install -m 0644 -o 0 -g 0 "$work/new.plist" "$R/System/Library/xpc/launchd.plist"
 sync
 echo "done: ${labels[*]}"
