@@ -104,6 +104,9 @@ sudo find "$S/usr/lib" -maxdepth 1 \( -type f -o -type l \) -printf '%f\n' 2>/de
 	fi
 done
 
+echo "== demo jobs as plain plists"
+sudo python3 "$here/minroot-jobs.py" "$stage/System/Library/LaunchDaemons"
+
 echo "== launchd job cache"
 sudo python3 "$here/minroot-launchd.py" "$O/System/Library/xpc/launchd.plist" "$stage/System/Library/xpc/launchd.plist" ${keep:+--keep "${keep[@]}"}
 sudo chmod 0644 "$stage/System/Library/xpc/launchd.plist"
