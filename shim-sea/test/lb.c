@@ -20,13 +20,14 @@ int main(int argc,char**argv){
   uint64_t phys=rd64(pl,0x38), msz=rd64(pl,0x40), virt=rd64(pl,0x10), entry=rd64(pl,0x18);
   uint64_t adt_off=rd64(pl,0x20), adt_sz=rd64(pl,0x28), kend=rd64(pl,0x30);
   uint32_t nsegs; memcpy(&nsegs,pl+12,4);
-  void*ram=mmap((void*)phys,0x10000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE|MAP_NORESERVE,-1,0);
+  void*ram=mmap((void*)phys,0x40000000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE|MAP_NORESERVE,-1,0);
   if(ram==MAP_FAILED){perror("mmap");return 2;}
   int bad=0;
   for(int off=0;off<8;off++){
     size_t R=3*1024*1024+off; uint8_t*rd=aligned_alloc(4096,(R+n+8192)); srand(off); for(size_t i=0;i<R+n+8192;i++)rd[i]=rand();
     memset((void*)phys,0,0x4000000);
     memcpy(rd+R,pl,n);
+    for(uint32_t i=0;i<nsegs;i++) if(rd64(pl,0x2a8+32*i+16)==~0ULL){uint64_t pa=rd64(pl,0x2a8+32*i)+phys-virt; memset((void*)pa,0xA5,0x100000);}
     g_lo=(uint64_t)rd; g_hi=(uint64_t)rd+R+n;
     j_entry=0;
     printf("-- misalign %d\n",off);
@@ -35,6 +36,7 @@ int main(int argc,char**argv){
     if(!j_entry||j_entry!=entry+d){printf("BAD entry\n");bad++;continue;}
     /* segment check */
     for(uint32_t i=0;i<nsegs;i++){uint64_t va=rd64(pl,0x2a8+32*i),vs=rd64(pl,0x2a8+32*i+8),fo=rd64(pl,0x2a8+32*i+16),fs=rd64(pl,0x2a8+32*i+24);
+      if(fo==~0ULL){{uint8_t*q=(uint8_t*)(va+d);for(int k=0;k<0x100000;k++) if(q[k]!=0xA5){printf("BAD external seg touched\n");bad++;break;}} continue;}
       if(memcmp((void*)(va+d),pl+fo,fs)){printf("BAD seg %u\n",i);bad++;}
       for(uint64_t k=fs;k<vs;k++) if(((uint8_t*)(va+d))[k]){printf("BAD bss %u\n",i);bad++;break;}}
     uint64_t adt_pa=kend+d;

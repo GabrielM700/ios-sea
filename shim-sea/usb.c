@@ -209,10 +209,8 @@ void usb_probe(void)
 
 #define STAGE_ADDR	0xC0100000UL
 #define STAGE_MAX	0x7FE00000UL
-/* "oem addr HEX" moves the next download; the allowed window is 0xC0100000..RAM_TOP minus the DRAMC rank page. */
+/* "oem addr HEX" moves the next download; the allowed window is 0xC0100000..RAM_TOP (the DRAMC rank page at 0x13ffff000 is plain RAM for us). */
 #define RAM_TOP		0x20D808000UL
-#define HOLE_LO		0x13FFFF000UL
-#define HOLE_HI		0x140000000UL
 
 static uint8_t g_cfg;
 static uint32_t g_tx_pre, g_tx_post;
@@ -631,8 +629,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 			uint64_t end = next_addr + sz;
 			if (sz == 0 || sz > STAGE_MAX) {
 				tx_send("FAILbad size");
-			} else if (next_addr < STAGE_ADDR || end > RAM_TOP ||
-				   (next_addr < HOLE_HI && end > HOLE_LO)) {
+			} else if (next_addr < STAGE_ADDR || end > RAM_TOP) {
 				tx_send("FAILaddr range");
 			} else {
 				dl_total = sz;

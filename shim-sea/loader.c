@@ -207,6 +207,8 @@ static const char *boot_from(uint64_t rd_start, uint64_t rd_end)
 
 	for (uint32_t i = 0; i < p->nsegs; i++) {
 		const struct payload_seg *s = &p->segs[i];
+		if (s->file_off == ~0ULL)	/* external (in-place) ramdisk: already staged there by the host */
+			continue;
 		uintptr_t dst = s->vmaddr + pa_of_va_base;
 		copy64(dst, rd_start + s->file_off, s->file_size);
 		if (s->vmsize > s->file_size)
