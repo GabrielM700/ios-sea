@@ -27,6 +27,11 @@ DEMO = [
 def main():
     args = sys.argv[1:]
     keep = set()
+    outdir = None
+    if '--dir' in args:	# also write the kept jobs as plain plists there (launchd read them even when it rejected the cache)
+        i = args.index('--dir')
+        outdir = args[i + 1]
+        del args[i:i + 2]
     if '--keep' in args:
         i = args.index('--keep')
         keep = set(args[i + 1:])
@@ -54,6 +59,17 @@ def main():
             'StandardOutPath': '/dev/console',
             'StandardErrorPath': '/dev/console',
         }
+    if outdir:
+        import os
+        os.makedirs(outdir, exist_ok=True)
+        for key, job in jobs.items():
+            if job['Label'].startswith('com.sea.'):
+                continue
+            path = os.path.join(outdir, job['Label'] + '.plist')
+            with open(path, 'wb') as f:
+                plistlib.dump(job, f)
+            os.chmod(path, 0o644)
+            os.chown(path, 0, 0)
     plist['LaunchDaemons'] = jobs
     with open(dst, 'wb') as f:
         plistlib.dump(plist, f, fmt=plistlib.FMT_BINARY)
