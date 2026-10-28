@@ -10,8 +10,8 @@ launchd when the kernel is booted with launchd_unsecure_cache=1). Its job table
   * com.sea.hello / ps / df / mount: one-shot RunAtLoad jobs that run stock iOS tools
     with stdout/stderr on /dev/console, so the screen shows that launchd, dyld and the
     shared cache work;
-  * every stock job named with --keep (e.g. com.apple.logd), with its output on the
-    console and _PanicOnCrash renamed so a crash does not panic the kernel.
+  * every stock job named with --keep (e.g. com.apple.logd), with _PanicOnCrash renamed so a
+    crash does not panic the kernel (its output is NOT sent to /dev/console: non-root jobs cannot open it).
 
 Everything else in the file (global keys) is left as shipped.
 """
@@ -48,8 +48,12 @@ def main():
         if job.get('Label') in keep:
             if '_PanicOnCrash' in job:
                 job['_PanicOnCrasX'] = job.pop('_PanicOnCrash')
-            job['StandardOutPath'] = '/dev/console'
-            job['StandardErrorPath'] = '/dev/console'
+            # NOT /dev/console: a job running as _logd/mobile cannot open it and posix_spawn fails with
+            # EACCES (error 0xd, xpcproxy exit 78).  Stock output paths are dropped too (they point at /var/log
+            # dirs this root does not have); launchd's own log lines on the console are enough.
+            for k in ('StandardOutPath', 'StandardErrorPath'):
+                job.pop(k, None)
+            job.setdefault('ThrottleInterval', 30)	# less console spam when a daemon keeps failing
             if as_root:
                 for k in ('UserName', 'GroupName', 'Groups'):
                     job.pop(k, None)
