@@ -4,8 +4,8 @@
   minroot-jobs.py DIR        (DIR = <root>/System/Library/LaunchDaemons)
 
 launchd bootstraps that directory even when the launchd job cache is not used, so the screen shows
-ps / df / mount output either way. Each job runs at load and again every 30 s, so the LAST screen
-always has fresh output (the console does not scroll back).
+ps / df / mount output either way. One-shot (RunAtLoad only): the screen stops after the output.
+(Add 'StartInterval': 30 to the dict to repeat them while debugging.)
 """
 import os, plistlib, sys
 
@@ -20,7 +20,7 @@ os.makedirs(d, exist_ok=True)
 for label, argv in JOBS:
     p = os.path.join(d, label + '.plist')
     with open(p, 'wb') as f:
-        plistlib.dump({'Label': label, 'ProgramArguments': argv, 'RunAtLoad': True, 'StartInterval': 30,
+        plistlib.dump({'Label': label, 'ProgramArguments': argv, 'RunAtLoad': True,
                        'StandardOutPath': '/dev/console', 'StandardErrorPath': '/dev/console'}, f)
     os.chmod(p, 0o644)
     os.chown(p, 0, 0)	# launchd refuses plists not owned by root
