@@ -209,6 +209,10 @@ void usb_probe(void)
 
 #define STAGE_ADDR	0xC0100000UL
 #define STAGE_MAX	0x7FE00000UL
+/* "oem addr HEX" moves the next download; the allowed window is 0xC0100000..RAM_TOP minus the DRAMC rank page. */
+#define RAM_TOP		0x20D808000UL
+#define HOLE_LO		0x13FFFF000UL
+#define HOLE_HI		0x140000000UL
 
 static uint8_t g_cfg;
 static uint32_t g_tx_pre, g_tx_post;
@@ -542,6 +546,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 	char resp[72];
 	uint64_t dl_total = 0, dl_got = 0;
 	uint8_t *dl_ptr = 0;
+	uint64_t next_addr = STAGE_ADDR, last_addr = STAGE_ADDR;
 	int state = 0, go = 0, rc = 0;
 
 	header();
@@ -623,18 +628,43 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 				char c = cmd[i];
 				sz = sz << 4 | (c <= '9' ? c - '0' : (c | 32) - 'a' + 10);
 			}
+			uint64_t end = next_addr + sz;
 			if (sz == 0 || sz > STAGE_MAX) {
 				tx_send("FAILbad size");
+			} else if (next_addr < STAGE_ADDR || end > RAM_TOP ||
+				   (next_addr < HOLE_HI && end > HOLE_LO)) {
+				tx_send("FAILaddr range");
 			} else {
 				dl_total = sz;
 				dl_got = 0;
-				dl_ptr = (uint8_t *)STAGE_ADDR;
+				last_addr = next_addr;
+				dl_ptr = (uint8_t *)next_addr;
 				state = 1;
 				con_hex("SIZE", sz);
 				scpy(resp, "DATA");
 				hex8(resp + 4, sz);
 				resp[12] = 0;
 				tx_send(resp);
+			}
+		} else if (starts((char *)cmd, "oem addr")) {
+			/* oem addr HEX (with or without 0x): destination of the following downloads */
+			const char *q = (char *)cmd + 8;
+			while (*q == ' ') q++;
+			if (q[0] == '0' && (q[1] | 32) == 'x') q += 2;
+			uint64_t v = 0;
+			int nd = 0;
+			for (; *q; q++, nd++) {
+				char c = *q;
+				if (!((c >= '0' && c <= '9') || ((c | 32) >= 'a' && (c | 32) <= 'f')))
+					break;
+				v = v << 4 | (c <= '9' ? c - '0' : (c | 32) - 'a' + 10);
+			}
+			if (!nd || v < STAGE_ADDR || v >= RAM_TOP || (v & 0xfff)) {
+				tx_send("FAILbad addr");
+			} else {
+				next_addr = v;
+				con_hex("ADDR", v);
+				tx_send("OKAY");
 			}
 		} else if (starts((char *)cmd, "boot") || starts((char *)cmd, "continue") ||
 			   starts((char *)cmd, "oem go")) {
@@ -656,7 +686,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 	}
 	hold(300);
 	w8(MUSB + 0x01, 0);		/* soft-disconnect */
-	*out_addr = STAGE_ADDR;
+	*out_addr = last_addr;
 	*out_len = dl_total;
 	return rc;
 }

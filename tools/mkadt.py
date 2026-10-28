@@ -2,7 +2,7 @@
 """Build the minimal Apple Device Tree that the SWEET xnu needs to boot.
 
 Only what the early boot path actually reads (see NOTES.md); every MMIO
-address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem]
+address comes from the sweet live FDT. Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--dram=BASE:SIZE]
 """
 import hashlib, os, struct, sys
 
@@ -101,7 +101,7 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False, fleur=False, sea=False):
+def build(seed=None, qemu=False, highmem=False, fleur=False, sea=False, dram=None):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ
     (tools/qemu-sweet.py).  fleur=True: MT6781 addresses, RAM above the MTK
     carve-outs, 1080x2400 framebuffer and 13 MHz timer."""
@@ -119,6 +119,8 @@ def build(seed=None, qemu=False, highmem=False, fleur=False, sea=False):
             phys_base, mem_size = SEA_PHYS_BASE, SEA_MEM_SIZE
             fb, fb_size = SEA_FB, SEA_FB_SIZE
             fb_w, fb_h, fb_stride = SEA_FB_W, SEA_FB_H, SEA_FB_STRIDE
+        if dram:	# --dram BASE:SIZE, e.g. 0xC2000000:0x7DFFF000 (XNU low, ramdisk parked above 0x140000000)
+            phys_base, mem_size = dram
     else:
         phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
         gicd, gicr, timebase = (QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE) if qemu else (GICD, GICR, TIMEBASE)
@@ -302,7 +304,9 @@ def build(seed=None, qemu=False, highmem=False, fleur=False, sea=False):
 
 if __name__ == '__main__':
     root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv,
-                 fleur='--fleur' in sys.argv, sea='--sea' in sys.argv)
+                 fleur='--fleur' in sys.argv, sea='--sea' in sys.argv,
+                 dram=next((tuple(int(v, 0) for v in a.split('=', 1)[1].split(':'))
+                            for a in sys.argv if a.startswith('--dram=')), None))
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:

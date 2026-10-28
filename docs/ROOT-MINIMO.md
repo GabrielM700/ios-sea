@@ -16,22 +16,23 @@ python3 tools/remotezip.py IPSW_URL 087-86698-044 ipsw     # OS (o rootfs)
 python3 tools/remotezip.py IPSW_URL 087-86593-047 ipsw     # Cryptex1,SystemOS (shared cache)
 # 3. root mínimo (HFS+, ~2 GB)
 tools/mkminroot.sh ipsw/<OS>.dmg ipsw/<SystemOS>.dmg root.img
-# 4. árvore de dispositivos e payload (kernel + ADT + root)
-python3 tools/mkadt.py sea.adt --sea
-python3 tools/mkpayload.py kernel.development.sweet sea.adt payload.bin --ramdisk root.img \
-  --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=md0 rootrw=1 launchd_unsecure_cache=1 ignition_level=1 wdt=-1 wdt_test=no_user_checkin'
+# 4. árvore de dispositivos e payload: XNU na RAM baixa (0xC2000000, ~2 GiB), root PARADO acima de 0x140000000
+python3 tools/mkadt.py sea.adt --sea --dram=0xC2000000:0x7DFFF000
+python3 tools/mkpayload.py kernel.development.sweet sea.adt payload.bin --ramdisk root.img --ramdisk-pa 0x140000000 \
+  --cmdline 'debug=0xc serial=3 cpus=8 keepsyms=1 -noprogress rd=md0 rootrw=1 unentitled_ios_sim_launch=1 launchd_unsecure_cache=1 ignition_level=1 wdt=-1 wdt_test=no_user_checkin'
 ```
 
 ## No aparelho (uma vez por sessão)
 ```sh
 # loader USB (grava só a boot_b; uma vez, ou ao mudar o loader)
-fastboot flash boot_b sea-usb-fb4.img && fastboot reboot
+fastboot flash boot_b sea-usb-fb5.img && fastboot reboot
 # a tela azul mostra "waiting for the host"; então:
-fastboot stage payload.bin && fastboot oem go     # ~6 min para 2 GB (USB 2.0, PIO)
+tools/seastage.sh payload.bin root.img            # root em pedaços de 1 GiB (oem addr + stage), payload por último, oem go
+# ~9 min para 3 GB (USB 2.0, PIO)
 ```
 Voltar ao fastboot do LK: segure Power + Vol- (ou `fastboot reboot` enquanto o loader USB responde).
 
 ## O que esperar
 `BSD root: md0` -> `hfs: mounted iOSRoot` -> launchd (PID 1) -> saída de `ps -A`, `df`, `mount` no console.
-Limite: payload <= 0x7FE00000 (~2 GiB). Se o shared cache for maior, cortar subcaches.
+Layout da RAM: XNU em 0xC2000000-0x13FFFF000 (~2 GiB); root em 0x140000000+ (md0 aponta para lá, fora da RAM gerida pelo XNU); payload (kernel+ADT, ~16 MB) logo depois do root, até 0x20D808000. Cada download <= 0x7FE00000 (~2 GiB).
 Não incluído: `userdata` (intocado), firmware do sea, toque/GPU/rede.

@@ -12,7 +12,7 @@
 # cryptex's dyld shared cache at /System/Library/Caches/com.apple.dyld (dyld at ignition_level=1 looks
 # there), a launchd job cache with only demo jobs (tools/minroot-launchd.py), the /private skeleton and
 # the plain system keybag. Not in: frameworks (they are in the cache), apps, daemons, fonts, ...
-# Space: the script prints the staged size; the image is that plus 12 % and 128 MiB.
+# Space: the script prints the staged size; the image is that plus 5 % and 96 MiB.
 set -euo pipefail
 
 [[ $# -ge 3 ]] || { sed -n '2,15p' "$0"; exit 2; }
@@ -94,6 +94,16 @@ else
 
 fi
 
+# dyld at ignition_level=1 does not search the cryptex: copy the cryptex-only /usr/lib files
+# (libobjc-trampolines, libstdc++, ...) into the root, as mkiosroot.sh does for the whole cryptex.
+echo "== cryptex-only /usr/lib files"
+sudo find "$S/usr/lib" -maxdepth 1 \( -type f -o -type l \) -printf '%f\n' 2>/dev/null | while IFS= read -r f; do
+	if ! sudo test -e "$stage/usr/lib/$f" && ! sudo test -L "$stage/usr/lib/$f"; then
+		sudo mkdir -p "$stage/usr/lib"
+		sudo cp -a "$S/usr/lib/$f" "$stage/usr/lib/$f" && echo "  + usr/lib/$f"
+	fi
+done
+
 echo "== launchd job cache"
 sudo python3 "$here/minroot-launchd.py" "$O/System/Library/xpc/launchd.plist" "$stage/System/Library/xpc/launchd.plist" ${keep:+--keep "${keep[@]}"}
 sudo chmod 0644 "$stage/System/Library/xpc/launchd.plist"
@@ -112,7 +122,7 @@ if [[ -s $work/rsync-failed.log ]]; then
 fi
 
 bytes=$(sudo du -sb "$stage" | cut -f1)
-img=$(( (bytes * 112 / 100 + 128*1024*1024 + 16*1024*1024 - 1) / (16*1024*1024) * (16*1024*1024) ))
+img=$(( (bytes * 105 / 100 + 96*1024*1024 + 16*1024*1024 - 1) / (16*1024*1024) * (16*1024*1024) ))
 echo "== staged $((bytes/1024/1024)) MiB -> image $((img/1024/1024)) MiB"
 truncate -s "$img" "$out"
 mkfs.hfsplus -s -J -v iOSRoot "$out"

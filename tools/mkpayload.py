@@ -20,6 +20,10 @@ Payload layout (little endian, all offsets from payload start):
   0x048  char  cmdline[608]
   0x2a8  seg[nsegs] { u64 vmaddr, vmsize, file_off(in payload), file_size }
 
+--ramdisk-pa PA (with --ramdisk): the image is not packed; the ADT just points md0 at PA, where the
+host stages it ('fastboot oem addr PA; fastboot stage part1...').  Prints payload_pa, where the
+payload itself must be staged last.
+
 --ramdisk appends IMAGE as one more segment right after the kernel and moves
 kernel_end past it, so the shim needs no changes: the image lands below the
 ADT and boot_args, inside topOfKernelData (never handed to the VM), and the
@@ -140,7 +144,11 @@ def adt_dram(adt_blob):
             struct.unpack('<Q', chosen.prop('dram-size'))[0])
 
 
-def build(kernel_path, adt_path, cmdline, ramdisk_path=None):
+RAM_TOP = 0x20D808000
+RANK_PAGE = (0x13FFFF000, 0x140000000)
+
+
+def build(kernel_path, adt_path, cmdline, ramdisk_path=None, ramdisk_pa=None):
     buf = bytearray(open(kernel_path, 'rb').read())
     m = parse_macho(buf)
     nfix = apply_chained_fixups(buf, m)
@@ -158,7 +166,20 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None):
     PHYS_BASE, MEM_SIZE = adt_dram(adt_blob)
     pieces = [(s['vmaddr'], s['vmsize'], buf[s['fileoff']:s['fileoff'] + s['filesize']]) for s in segs]
     ramdisk = None
-    if ramdisk_path:
+    payload_pa = None
+    if ramdisk_path and ramdisk_pa is not None:
+        # External ramdisk: staged separately (fastboot oem addr + stage) at ramdisk_pa, outside the
+        # kernel-managed RAM, so it is neither in the payload nor copied.
+        rd_size = (os.path.getsize(ramdisk_path) + PAGE - 1) & ~(PAGE - 1)
+        rd_end = ramdisk_pa + rd_size
+        assert ramdisk_pa & 0xfff == 0
+        assert rd_end <= RAM_TOP, 'ramdisk does not fit below 0x20D808000'
+        assert rd_end <= PHYS_BASE or ramdisk_pa >= PHYS_BASE + MEM_SIZE, 'ramdisk overlaps kernel RAM'
+        assert not (ramdisk_pa < RANK_PAGE[1] and rd_end > RANK_PAGE[0]), 'ramdisk crosses the DRAMC rank page'
+        adt_blob = add_ramdisk_to_adt(adt_blob, ramdisk_pa, rd_size)
+        ramdisk = (hex(ramdisk_pa), hex(rd_size))
+        payload_pa = (rd_end + 0xfffff) & ~0xfffff
+    elif ramdisk_path:
         image = open(ramdisk_path, 'rb').read()
         rd_size = (len(image) + PAGE - 1) & ~(PAGE - 1)
         rd_va = kernel_end
@@ -190,6 +211,11 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None):
     info = dict(cputype=hex(m['cputype']), cpusub=m['cpusub'], fixups=nfix, virt_base=hex(virt_base),
                 entry=hex(m['entry']), kernel_end=hex(kernel_end), ramdisk=ramdisk, size=len(out),
                 segs=[(s['name'], hex(s['vmaddr']), hex(s['vmsize'])) for s in segs])
+    if payload_pa is not None:
+        info['payload_pa'] = hex(payload_pa)
+        info['payload_end'] = hex(payload_pa + len(out))
+        assert payload_pa + len(out) <= RAM_TOP, 'payload does not fit above the ramdisk'
+        assert payload_pa >= PHYS_BASE + MEM_SIZE or payload_pa + len(out) <= PHYS_BASE
     return bytes(out), info
 
 
@@ -198,8 +224,10 @@ if __name__ == '__main__':
     ap.add_argument('kernel'); ap.add_argument('adt'); ap.add_argument('out')
     ap.add_argument('--cmdline', default='debug=0xc serial=3 cpus=1 keepsyms=1')
     ap.add_argument('--ramdisk', help='root image for md0 (boot with rd=md0)')
+    ap.add_argument('--ramdisk-pa', type=lambda x: int(x, 0),
+                    help='keep the ramdisk OUT of the payload: it is staged by the host at this physical address')
     a = ap.parse_args()
-    blob, info = build(a.kernel, a.adt, a.cmdline, a.ramdisk)
+    blob, info = build(a.kernel, a.adt, a.cmdline, a.ramdisk, a.ramdisk_pa)
     open(a.out, 'wb').write(blob)
     for k, v in info.items():
         if k != 'segs':
