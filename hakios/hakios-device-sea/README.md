@@ -9,7 +9,7 @@ repository's; the mt6781 family's facts are in `soc/`. How the three fit:
 
 | | Qualcomm devices here | sea |
 |---|---|---|
-| Firmware that starts the loader | UEFI (Mu-Silicium, `hakios-uefi`) | **none**: MediaTek's LK ("kaeru") loads `boot.img` (v3) at `0x40080000`, EL1, MMU and caches off. There is no UEFI port for the MT6781 |
+| Firmware that starts the loader | UEFI (Mu-Silicium, `hakios-uefi`) | **none**: MediaTek's LK ("kaeru") loads `boot.img` (v3) at `0x40080000`, EL1, MMU and caches off. Mu-Silicium has no MT6781 port (it has MT6768 and MT6789 layers for other MediaTek chips, a possible base), so none is used |
 | Loader | HakiOS's XNU loader inside UEFI | a bare-metal arm64 **shim** in the `boot.img` kernel slot (wakes UFS, runs a USB gadget, copies the payload, jumps to XNU) |
 | Payload to RAM | `fastboot boot` | `fastboot stage` + `fastboot oem addr` + `fastboot oem go` against the shim's own gadget (VID:PID `18d1:4ee0`); the root image is staged straight to its final address, in 1 GiB pieces |
 | SoC | SC7280 family | MT6781, 6x A55 + 2x A76, GICv3 at `0x0c000000`, PSCI 1.1 |
