@@ -1,0 +1,19 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = KeypadDeviceLib
+  FILE_GUID                      = 94D1A07C-5B3E-4C28-8F6A-D07E21B9C453
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = KeypadDeviceLib
+
+[Sources.common]
+  KeypadDeviceLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  UefiLib
+  DebugLib

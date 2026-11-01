@@ -1,0 +1,19 @@
+#
+# UEFI FD Configs: LK loads the boot image's kernel at 0x40080000 and enters it at EL1 (measured on the phone).
+#
+[uefi_fd]
+base = 0x40080000
+size = 0x200000
+
+#
+# Android Boot Image Kernel Configs: the FD is the kernel as it is, gzip like the stock kernel and ios-sea's shim (LK unpacks it to 0x40080000).
+#
+[boot_image_kernel]
+kernel_compression = "gzip"
+append_dtb         = false
+
+#
+# Android Boot Image Configs: boot.img v3 (the sea has vendor_boot; offsets and DTB belong there).
+#
+[boot_image]
+header_version = 3

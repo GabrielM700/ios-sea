@@ -1,0 +1,5 @@
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = seaPkg
+  PACKAGE_GUID                   = 3B8F1D57-0C42-4E96-A7D9-61E5B2C8F094
+  PACKAGE_VERSION                = 0.1
