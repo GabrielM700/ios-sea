@@ -640,6 +640,8 @@ static void id_report(void)
 		 "simd=", (uint32_t)((rsr("id_aa64pfr0_el1") >> 20) & 0xf));
 }
 
+void key_probe(void);
+
 void shim_main(uint64_t dtb, uint64_t boot_el)
 {
 	/*
@@ -668,6 +670,19 @@ void shim_main(uint64_t dtb, uint64_t boot_el)
 		con_str("NEXT", "usb loader again in 8 s");
 		delay_ms(8000);
 	}
+#endif
+#ifdef KEY_PROBE
+	stage = "key";
+	con_clear(BLUE);
+	con_str("SHIM", "sea key probe  PWRAP/PMIC/KP");
+	con_hex2("BOOT", "el=", (uint32_t)boot_el, "dtb=", dtb);
+	key_probe();
+	con_skip();
+	con_str("DONE", "fastboot reboot in 30 s");
+	delay_ms(30000);
+	reboot_bootloader();
+	for (;;)
+		__asm__ volatile("wfi");
 #endif
 #ifdef USB_PROBE
 	stage = "usb";
