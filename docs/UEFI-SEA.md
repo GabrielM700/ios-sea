@@ -4,7 +4,7 @@ Plataforma do [Mu-Silicium](https://github.com/Project-Silicium/Mu-Silicium) (`P
 só com o que foi **medido no aparelho** (`docs/SEA.md`, `NOTES.md`). O UEFI sai como `boot.img` v3 (kernel gzip no slot do kernel, como o
 shim), então grava-se do mesmo jeito. Os fontes estão em `uefi-sea/`; o dispositivo no formato HakiOS está em `hakios/hakios-device-sea/`.
 
-**Estado: compila (RELEASE e DEBUG), não foi testado no aparelho.** Nada aqui toca `userdata`.
+**Estado: compila (RELEASE e DEBUG); nenhuma parte foi testada no aparelho** (o shim equivalente foi). Nada aqui toca `userdata`.
 
 ## O que a plataforma declara
 
@@ -20,17 +20,25 @@ shim), então grava-se do mesmo jeito. Os fontes estão em `uefi-sea/`; o dispos
 | Watchdog | desligado no SEC (`0x10007000`, chave `0x22000000`): sem isso o aparelho reinicia sozinho (visto nos primeiros probes, ~60 s) |
 | MMIO mapeado | WDT, I2C0 `0x11007000`, MUSB `0x11200000`, UFS HCI `0x11270000`, PHY USB `0x11CA0000` |
 
-## O que NÃO tem (de propósito)
+## O que veio do shim (portado, ainda não testado no aparelho)
 
-- **Clock, GPIO, PMIC e MSDC**: os drivers do Mu-Silicium são escritos para os registradores do MT6768/MT6789; nada disso foi medido no MT6781.
-  A LK deixa os clocks ligados (visto no probe do USB).
-- **Armazenamento**: o sea usa UFS (LUN 2 tem a GPT). Falta um driver UEFI de UFS que faça o START STOP UNIT na W-LUN (o shim faz isso em `shim-sea/ufs.c`).
-- **USB**: falta o driver do MUSB + PHY (forçar VBUS, `shim-sea/usb.c` já faz).
-- **Teclas**: `KeypadDeviceLib` é um stub (nenhuma tecla). Power/volume ficam no PMIC/GPIO.
-- **ACPI**: sem tabelas; **RamManager**: sem (a RAM é estática no `MemoryMapLib`).
+| No shim | No UEFI | Onde |
+|---|---|---|
+| `shim-sea/ufs.c`: clocks INFRA, takeover da lista de requests do UFSHCI, START STOP UNIT na W-LUN `0xD0`, acha a LUN com `EFI PART` | **`SeaUfsDxe`**: publica a LUN 2 como `EFI_BLOCK_IO_PROTOCOL` **somente leitura** (blocos de 4 KiB, bounce buffer abaixo de 4 GiB); o `PartitionDxe` lê a GPT e aparecem `boot_a`, `super`, `userdata`... Não existe SCSI WRITE no driver | `Drivers/SeaUfsDxe/` |
+| `shim-sea/usb.c`: gadget fastboot no MUSB (PHY, VBUS forçado, EP0/EP1 por polling), `getvar`, `download`, `oem addr`, `oem go`, `reboot` | **`SeaLoaderDxe`**: o **mesmo `usb.c`** (o `build.sh` copia o do shim, sem mudanças) rodando no EndOfDxe, antes do menu. Sem host por 120 s, segue para o menu do UEFI. Desliga o watchdog de 5 min do UEFI (o stage de 3 GiB leva ~8 min) | `Drivers/SeaLoaderDxe/` |
+| `shim-sea/loader.c` (`boot_from`): copia os segmentos SWEETXNU, ADT, `boot_args`, pula no XNU com MMU/cache desligados | `SeaBoot.c`: a mesma lógica (offsets de `boot_args` conferidos com o `loader.c`: Video 40, cmdline 108, 736 bytes), depois `ExitBootServices`, limpa os caches, desliga MMU e caches e salta com `x0 = boot_args` (só registradores nessa última parte) | `SeaBoot.c` |
+| RAM `0xC0100000..0x20D808000` do stage | declarada **reservada** no `MemoryMapLib`: o UEFI nunca aloca ali, então o payload e o root de 3 GiB ficam intactos até o XNU | `MemoryMapLib.c` |
 
-Ou seja: o primeiro UEFI sobe, desenha no framebuffer (DEBUG imprime o log na tela) e fica no menu/console. É o degrau para o resto:
-UFS e USB (portando o que o shim já faz), teclas e o carregador do XNU (`hakios-uefi/files/XnuLoader.c`).
+O fluxo no PC é o mesmo de antes: `tools/seastage.sh payload.bin root.img` (`fastboot oem addr`, `fastboot stage`, `fastboot oem go`).
+Com a imagem DEBUG o log aparece na tela; na RELEASE uma **barra colorida** no topo mostra o estado: azul = esperando o host, ciano = comando,
+amarelo = tamanho do download, verde = download completo, branco = saltando para o XNU, vermelho = o payload não iniciou.
+
+## O que ainda NÃO tem (de propósito)
+
+- **Clock, GPIO, PMIC e MSDC** do Mu-Silicium: são para os registradores do MT6768/MT6789; nada disso foi medido no MT6781. A LK deixa os clocks ligados.
+- **Teclas**: `KeypadDeviceLib` é um stub (power/volume ficam no PMIC/GPIO).
+- **ACPI** e **RamManager** (a RAM é estática no `MemoryMapLib`); **DMA do USB** (PIO, ~6 MB/s como no shim).
+- Boot do XNU a partir de uma partição `darwin` do UFS (hoje só pelo USB).
 
 ## Compilar
 
@@ -49,5 +57,5 @@ dentro de `Mu_Basecore`: brotli (2), libfdt, mipisyst e libspdm.
 fastboot flash boot_b sea-uefi-DEBUG.img     # slot de teste, como com o shim; o stock fica em boot_a
 ```
 
-O que esperar com DEBUG: o log do UEFI na tela (`FrameBufferSerialPortLib`). Se reiniciar em ~1 min o watchdog não foi desligado (mande foto);
+O que esperar com DEBUG: o log do UEFI na tela (`FrameBufferSerialPortLib`), incluindo `SeaUfs: ... SSU rc=0` e `SeaUfs: LUN2 GPT`, depois a barra azul do loader USB esperando o host. Se reiniciar em ~1 min o watchdog não foi desligado (mande foto);
 se a tela ficar preta, o framebuffer ou a pilha estão errados. Para voltar ao shim, grave `sea-usb-fb6.img` na mesma partição.

@@ -63,3 +63,9 @@
   #
   SiliciumPkg/Drivers/KeypadDxe/KeypadDxe.inf
   SiliciumPkg/Drivers/KeypadDeviceDxe/KeypadDeviceDxe.inf
+
+  #
+  # What the shim of ios-sea does, as UEFI drivers: the UFS (read-only block device) and the USB loader
+  #
+  seaPkg/Drivers/SeaUfsDxe/SeaUfsDxe.inf
+  seaPkg/Drivers/SeaLoaderDxe/SeaLoaderDxe.inf

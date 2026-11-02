@@ -82,6 +82,10 @@ READ_LOCK_STATUS   = TRUE
   !include Include/APRIORI.inc
   !include Include/DXE.inc
 
+  # The shim of ios-sea: UFS and the USB loader
+  INF seaPkg/Drivers/SeaUfsDxe/SeaUfsDxe.inf
+  INF seaPkg/Drivers/SeaLoaderDxe/SeaLoaderDxe.inf
+
   # SmBios
   INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
   INF SiliciumPkg/Drivers/SmBiosTableDxe/SmBiosTableDxe.inf

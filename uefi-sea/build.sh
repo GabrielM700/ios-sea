@@ -9,6 +9,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 mu=$(realpath "${1:?Mu-Silicium checkout}") stock=$(realpath "${2:?stock boot.img}") mode=${3:-DEBUG}
 tools=$here/../tools
+cp "$here/../shim-sea/usb.c" "$here/Platforms/Xiaomi/seaPkg/Drivers/SeaLoaderDxe/usb.c"   # the shim's USB gadget, unchanged
 cp -r "$here/Platforms" "$here/Silicon" "$here/Resources" "$mu/"
 export WORKSPACE=$mu
 export PACKAGES_PATH=$mu/Platforms/Xiaomi:$mu/Common/Mu:$mu/Common/Mu_OEM_Sample:$mu/Mu_Basecore:$mu/Silicon/MediaTek:$mu/Silicon/Silicium:$mu/Silicium-ACPI

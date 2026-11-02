@@ -1,0 +1,45 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = SeaLoaderDxe
+  FILE_GUID                      = C4B7E012-6A59-4D83-8E2F-13F9A05D7B64
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = SeaLoaderEntry
+
+[Sources]
+  SeaLoaderDxe.c
+  SeaBoot.c
+  usb.c
+  Compat/stdint.h
+  Compat/console.h
+  Compat/usb.h
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  BaseMemoryLib
+  BaseLib
+  DebugLib
+  IoLib
+  TimerLib
+  ArmLib
+  CacheMaintenanceLib
+  MemoryAllocationLib
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid
+
+[Guids]
+  gEfiEndOfDxeEventGroupGuid
+
+[BuildOptions]
+  *_*_*_CC_FLAGS = -Wno-error -I$(MODULE_DIR)/Compat
+
+[Depex]
+  gEfiRuntimeArchProtocolGuid
