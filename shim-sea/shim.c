@@ -641,6 +641,7 @@ static void id_report(void)
 }
 
 void key_probe(void);
+void dma_probe(void);
 
 void shim_main(uint64_t dtb, uint64_t boot_el)
 {
@@ -670,6 +671,18 @@ void shim_main(uint64_t dtb, uint64_t boot_el)
 		con_str("NEXT", "usb loader again in 8 s");
 		delay_ms(8000);
 	}
+#endif
+#ifdef DMA_PROBE
+	stage = "dma";
+	con_clear(BLUE);
+	con_str("SHIM", "sea usb dma probe");
+	con_hex2("BOOT", "el=", (uint32_t)boot_el, "dtb=", dtb);
+	dma_probe();
+	con_str("DONE", "fastboot reboot in 20 s");
+	delay_ms(20000);
+	reboot_bootloader();
+	for (;;)
+		__asm__ volatile("wfi");
 #endif
 #ifdef KEY_PROBE
 	stage = "key";
