@@ -36,7 +36,7 @@ amarelo = tamanho do download, verde = download completo, branco = saltando para
 ## O que ainda NÃO tem (de propósito)
 
 - **Clock, GPIO, PMIC e MSDC** do Mu-Silicium: são para os registradores do MT6768/MT6789; nada disso foi medido no MT6781. A LK deixa os clocks ligados.
-- **Teclas**: `KeypadDeviceLib` é um stub (power/volume ficam no PMIC/GPIO).
+- **Teclas**: medidas no aparelho com `shim-sea/keyprobe.c`. O PWRAP (`0x1000D000`) usa o layout do MT6768 (INIT_DONE2 `0x94`, WACS2_CMD `0xC20`, RDATA `0xC24` com FSM em [18:16], VLDCLR `0xC28`) e o PMIC responde `0x6610` (MT6366). `TOPSTATUS` (reg `0x28`): bit1 = power, bit3 = vol+ (0 = apertado). Vol− é a matriz `kp` em `0x10010000`: apertar limpa os bits 0 e 9 de `KP_MEM1` (e muda MEM1..MEM4). `KeypadDeviceLib` do sea lê isso direto (sem protocolos GPIO/PMIC do Mu); ainda não testado no menu do UEFI.
 - **ACPI** e **RamManager** (a RAM é estática no `MemoryMapLib`); **DMA do USB** (PIO, ~6 MB/s como no shim).
 - Boot do XNU a partir de uma partição `darwin` do UFS (hoje só pelo USB).
 
