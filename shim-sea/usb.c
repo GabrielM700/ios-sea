@@ -538,13 +538,125 @@ static void say(const char *l, const char *s)
 }
 
 /* returns 0 = boot payload, 1 = reboot to LK fastboot */
+/*
+ * RX through the MUSB HSDMA (measured on the phone: 8 channels, ADDR is a plain 32-bit register,
+ * COUNT takes 28 bits).  Mode 1 + auto-clear: the controller drains whole 512 B packets by itself.
+ * Data below 4 GiB is DMA'd straight to its place, anything above goes through a low bounce buffer and a
+ * CPU copy (MMU is off, so there is no cache to maintain).  If a transfer makes no progress for 2 s the
+ * channel is stopped, DMA is switched off for the rest of the session and the host sees a failed download.
+ * `oem dma 0` / `oem dma 1` turn it off / on from the PC.
+ */
+#define DMA_CH		0
+#define DMA_INTR	(MUSB + 0x200)
+#define DMA_CNTL	(MUSB + 0x200 + 16 * DMA_CH + 4)
+#define DMA_ADDR	(MUSB + 0x200 + 16 * DMA_CH + 8)
+#define DMA_COUNT	(MUSB + 0x200 + 16 * DMA_CH + 12)
+#define DMA_ENABLE	0x0001
+#define DMA_MODE1	0x0004
+#define DMA_IRQEN	0x0008
+#define DMA_BUSERR	0x0100
+#define DMA_INCR16	(3 << 9)
+#define RXCSR_AUTOCLEAR	0x8000
+#define RXCSR_DMAENAB	0x2000
+#define RXCSR_DMAMODE	0x0800
+#define BOUNCE		0xC1000000UL
+#define BOUNCE_SZ	0x100000UL
+
+static int g_dma_off, g_sum;
+
+/* `oem sum 1`: after every download print the 64-bit sum of its 8-byte little-endian words (tools/sumfile.py
+ * computes the same on the PC) so a DMA transfer can be checked against the file that was sent. */
+static void sum_report(const uint8_t *p, uint64_t n)
+{
+	volatile const uint64_t *w = (volatile const uint64_t *)p;
+	uint64_t s = 0;
+	if (!g_sum || ((uintptr_t)p & 7))
+		return;
+	for (uint64_t i = 0; i < n / 8; i++)
+		s += w[i];
+	con_hex("SUM", s);
+}
+static uint64_t g_dma_bytes, g_pio_bytes;
+
+static void copy_down(uint8_t *dst, const uint8_t *src, unsigned n)
+{
+	volatile uint64_t *d = (volatile uint64_t *)dst;
+	volatile const uint64_t *s = (volatile const uint64_t *)src;
+	for (unsigned i = 0; i < n / 8; i += 4) {
+		uint64_t a = s[i], b = s[i + 1], c = s[i + 2], e = s[i + 3];
+		d[i] = a; d[i + 1] = b; d[i + 2] = c; d[i + 3] = e;
+	}
+}
+
+/* pull up to `remaining` bytes (whole packets only) into dst; returns bytes stored, <0 on failure */
+static int64_t dma_pull(uint8_t *dst, uint64_t remaining)
+{
+	uint64_t n = remaining & ~511UL;
+	uint64_t d = (uint64_t)dst;
+	int direct;
+	uint32_t a;
+	uint64_t last_t, done = 0;
+	uint32_t last_a;
+	uint16_t rx;
+
+	if (n > BOUNCE_SZ)
+		n = BOUNCE_SZ;
+	if (!n)
+		return 0;
+	direct = (d + n <= 0x100000000ULL) && !(d & 63);
+	a = direct ? (uint32_t)d : (uint32_t)BOUNCE;
+
+	rx = r16(EP1_RXCSR);
+	w16(EP1_RXCSR, rx | RXCSR_AUTOCLEAR | RXCSR_DMAENAB | RXCSR_DMAMODE);
+	w32(DMA_ADDR, a);
+	w32(DMA_COUNT, (uint32_t)n);
+	w16(DMA_CNTL, DMA_ENABLE | DMA_MODE1 | DMA_IRQEN | (1 << 4) | DMA_INCR16);
+
+	last_a = a;
+	last_t = cnt();
+	for (;;) {
+		uint16_t c = r16(DMA_CNTL);
+		uint32_t cur = r32(DMA_ADDR);
+		if (!(c & DMA_ENABLE) && !(c & DMA_BUSERR)) {
+			done = n;
+			break;
+		}
+		if (c & DMA_BUSERR) {
+			con_hex2("DMAERR", "bus cntl=", c, "addr=", cur);
+			goto fail;
+		}
+		if (cur != last_a) {
+			last_a = cur;
+			last_t = cnt();
+		} else if (cnt() - last_t > frq() * 2) {
+			con_hex2("DMAERR", "stall cntl=", c, "addr=", cur);
+			con_hex2("DMAERR", "rxcsr=", r16(EP1_RXCSR), "left=", r32(DMA_COUNT));
+			goto fail;
+		}
+		service();
+		if (g_bus_reset)
+			goto fail;
+	}
+	(void)r8(DMA_INTR);
+	w16(EP1_RXCSR, r16(EP1_RXCSR) & ~(RXCSR_AUTOCLEAR | RXCSR_DMAENAB | RXCSR_DMAMODE));
+	if (!direct)
+		copy_down(dst, (const uint8_t *)BOUNCE, (unsigned)done);
+	g_dma_bytes += done;
+	return (int64_t)done;
+fail:
+	w16(DMA_CNTL, 0);
+	w16(EP1_RXCSR, r16(EP1_RXCSR) & ~(RXCSR_AUTOCLEAR | RXCSR_DMAENAB | RXCSR_DMAMODE));
+	g_dma_off = 1;
+	return -1;
+}
+
 int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 {
 	uint8_t cmd[68] __attribute__((aligned(8)));
 	char resp[72];
 	uint64_t dl_total = 0, dl_got = 0;
 	uint8_t *dl_ptr = 0;
-	uint64_t next_addr = STAGE_ADDR, last_addr = STAGE_ADDR;
+	uint64_t next_addr = STAGE_ADDR, last_addr = STAGE_ADDR, t_dl = 0;
 	int state = 0, go = 0, rc = 0;
 
 	header();
@@ -575,6 +687,29 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 				state = 0;
 			}
 		}
+		if (state == 1 && g_cfg && !g_dma_off && dl_total - dl_got >= 512) {
+			int64_t got = dma_pull(dl_ptr + dl_got, dl_total - dl_got);
+			if (got < 0) {
+				say("USB", "dma failed: download aborted");
+				state = 0;
+				continue;
+			}
+			uint64_t prev = dl_got;
+			dl_got += (uint64_t)got;
+			last = cnt();
+			if ((prev * 4 / dl_total) != (dl_got * 4 / dl_total) && dl_got != dl_total)
+				con_hex("GOT", dl_got);
+			if (dl_got >= dl_total) {
+				uint64_t ms = (cnt() - t_dl) * 1000 / frq();
+				con_hex("DONE", dl_got);
+				sum_report(dl_ptr, dl_got);
+				con_hex2("TIME", "ms=", (uint32_t)ms, "KB/s=", ms ? (uint32_t)(dl_got / ms) : 0);
+				con_hex2("BYTES", "dma=", (uint32_t)(g_dma_bytes >> 10), "pio=", (uint32_t)(g_pio_bytes >> 10));
+				state = 0;
+				tx_send("OKAY");
+			}
+			continue;
+		}
 		if (!g_cfg || !(r16(EP1_RXCSR) & 1))
 			continue;
 
@@ -589,8 +724,13 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 			dl_got += n;
 			if ((prev * 4 / dl_total) != (dl_got * 4 / dl_total) && dl_got != dl_total)
 				con_hex("GOT", dl_got);
+			g_pio_bytes += n;
 			if (dl_got >= dl_total) {
+				uint64_t ms = (cnt() - t_dl) * 1000 / frq();
 				con_hex("DONE", dl_got);
+				sum_report(dl_ptr, dl_got);
+				con_hex2("TIME", "ms=", (uint32_t)ms, "KB/s=", ms ? (uint32_t)(dl_got / ms) : 0);
+				con_hex2("BYTES", "dma=", (uint32_t)(g_dma_bytes >> 10), "pio=", (uint32_t)(g_pio_bytes >> 10));
 				state = 0;
 				tx_send("OKAY");
 			}
@@ -608,7 +748,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 			if (starts(name, "all")) {
 				tx_send("INFOproduct: sea");
 				tx_send("INFOmax-download-size: 0x7fe00000");
-				tx_send("INFOversion-bootloader: ios-sea-usb");
+				tx_send("INFOversion-bootloader: ios-sea-usb-dma");
 				tx_send("OKAY");
 			} else {
 				const char *v = getvar(name);
@@ -636,6 +776,7 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 				dl_got = 0;
 				last_addr = next_addr;
 				dl_ptr = (uint8_t *)next_addr;
+				t_dl = cnt();
 				state = 1;
 				con_hex("SIZE", sz);
 				scpy(resp, "DATA");
@@ -663,6 +804,16 @@ int usb_fastboot(uint64_t *out_addr, uint64_t *out_len)
 				con_hex("ADDR", v);
 				tx_send("OKAY");
 			}
+		} else if (starts((char *)cmd, "oem sum")) {
+			g_sum = cmd[8] != '0';
+			con_str("SUM", g_sum ? "on" : "off");
+			tx_send("OKAY");
+		} else if (starts((char *)cmd, "oem dma")) {
+			const char *q = (char *)cmd + 7;
+			while (*q == ' ') q++;
+			g_dma_off = (*q == '0');
+			con_str("DMA", g_dma_off ? "off (PIO)" : "on");
+			tx_send("OKAY");
 		} else if (starts((char *)cmd, "boot") || starts((char *)cmd, "continue") ||
 			   starts((char *)cmd, "oem go")) {
 			if (dl_total < 64) {
